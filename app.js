@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cropContainer = document.getElementById('cropContainer');
     const cropCanvas = document.getElementById('cropCanvas');
     const cropConfirmBtn = document.getElementById('cropConfirmBtn');
+    const cropCancelBtn = document.getElementById('cropCancelBtn');
 
     // Crop variables
     let originalImage = null;
@@ -404,4 +405,9 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.fillRect(0, 0, canvas.width, canvas.height);
         });
     }
+
+    cropCancelBtn.addEventListener('click', () => {
+        cropContainer.style.display = 'none';
+        outputContainer.style.display = 'block';
+    });
 });
