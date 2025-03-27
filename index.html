@@ -1,0 +1,56 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Resizer Tool</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Image Resizer Tool</h1>
+        
+        <div class="upload-area" id="dropArea">
+            <div class="upload-instructions">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <p>Drag & drop an image here or click to upload</p>
+                <input type="file" id="fileInput" accept="image/*" hidden>
+            </div>
+        </div>
+        
+        <div class="output-container" id="outputContainer">
+            <h2>Resized Images</h2>
+            <div class="image-results">
+                <div class="result-item">
+                    <h3>28 × 28 px</h3>
+                    <div class="result-image-container">
+                        <canvas id="canvas28" width="28" height="28"></canvas>
+                    </div>
+                    <button class="download-btn" data-size="28">Download</button>
+                </div>
+                
+                <div class="result-item">
+                    <h3>56 × 56 px</h3>
+                    <div class="result-image-container">
+                        <canvas id="canvas56" width="56" height="56"></canvas>
+                    </div>
+                    <button class="download-btn" data-size="56">Download</button>
+                </div>
+                
+                <div class="result-item">
+                    <h3>112 × 112 px</h3>
+                    <div class="result-image-container">
+                        <canvas id="canvas112" width="112" height="112"></canvas>
+                    </div>
+                    <button class="download-btn" data-size="112">Download</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="app.js"></script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
