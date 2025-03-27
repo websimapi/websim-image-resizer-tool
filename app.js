@@ -8,6 +8,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const canvas56 = document.getElementById('canvas56');
     const canvas112 = document.getElementById('canvas112');
 
+    // Initialize the canvases with the default background color
+    initializeCanvases();
+
     // Handle file upload via click
     dropArea.addEventListener('click', () => {
         fileInput.click();
@@ -34,7 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (file.type.match('image.*')) {
                 processImage(file);
             } else {
-                clearResults();
                 alert('Please upload an image file.');
             }
         }
@@ -50,7 +52,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (file && file.type.match('image.*')) {
             processImage(file);
         } else {
-            clearResults();
             alert('Please upload an image file.');
         }
     }
@@ -69,18 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Show the output container
                 outputContainer.style.display = 'block';
             };
-            img.onerror = () => {
-                // Handle potential errors loading the image data
-                clearResults();
-                alert('Error loading the image.');
-            };
             img.src = e.target.result;
-        };
-        
-        reader.onerror = () => {
-            // Handle potential errors reading the file
-            clearResults();
-            alert('Error reading the file.');
         };
         
         reader.readAsDataURL(file);
@@ -89,9 +79,15 @@ document.addEventListener('DOMContentLoaded', () => {
     function resizeImage(img, canvas, size) {
         const ctx = canvas.getContext('2d');
         
-        // Clear the canvas (this also handles transparency)
+        // Clear the canvas (with transparency)
         ctx.clearRect(0, 0, size, size);
-
+        
+        // Only fill with background color if not preserving transparency
+        if (!config.preserveTransparency) {
+            ctx.fillStyle = config.backgroundColor;
+            ctx.fillRect(0, 0, size, size);
+        }
+        
         // Calculate aspect ratio to maintain proportions
         const scale = Math.min(size / img.width, size / img.height);
         const x = (size - img.width * scale) / 2;
@@ -110,7 +106,6 @@ document.addEventListener('DOMContentLoaded', () => {
         link.download = `image_${size}x${size}.png`;
         
         // Convert canvas to data URL and set as link href
-        // PNG format inherently supports transparency
         link.href = canvas.toDataURL('image/png');
         
         // Trigger download
@@ -119,15 +114,19 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.removeChild(link);
     }
 
-    // Function to clear results and hide the output container
-    function clearResults() {
+    function initializeCanvases() {
         const canvases = [canvas28, canvas56, canvas112];
+        
         canvases.forEach(canvas => {
             const ctx = canvas.getContext('2d');
+            // Clear with transparency if preserving transparency
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Only fill with background color if not preserving transparency
+            if (!config.preserveTransparency) {
+                ctx.fillStyle = config.backgroundColor;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
         });
-        outputContainer.style.display = 'none';
-        // Reset file input value to allow uploading the same file again if needed
-        fileInput.value = '';
     }
 });
