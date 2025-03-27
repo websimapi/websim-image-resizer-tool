@@ -170,8 +170,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     outputContainer.style.display = 'block';
                 })
                 .catch(error => {
-                    console.error('Vectorization error:', error);
-                    alert('Vectorization failed. Falling back to raster resizing.');
+                    console.error('Vectorization process failed:', error);
+                    alert('Vectorization failed. Falling back to raster resizing. Check the browser console (F12) for more details.');
                     resizeImage(imgToProcess, canvas28, 28);
                     resizeImage(imgToProcess, canvas56, 56);
                     resizeImage(imgToProcess, canvas112, 112);
@@ -294,34 +294,84 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = img.width;
-                tempCanvas.height = img.height;
+                tempCanvas.width = img.naturalWidth || img.width;
+                tempCanvas.height = img.naturalHeight || img.height;
                 const tempCtx = tempCanvas.getContext('2d');
-                tempCtx.drawImage(img, 0, 0);
+                tempCtx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
 
-                posterizer.loadImageData(tempCtx.getImageData(0, 0, img.width, img.height));
+                let imageData;
+                try {
+                    imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                } catch (e) {
+                    console.error("Error getting ImageData (possibly tainted canvas):", e);
+                    const cleanCanvas = document.createElement('canvas');
+                    cleanCanvas.width = tempCanvas.width;
+                    cleanCanvas.height = tempCanvas.height;
+                    const cleanCtx = cleanCanvas.getContext('2d');
+                    const freshImg = new Image();
+                    freshImg.crossOrigin = "Anonymous";
+                    freshImg.onload = () => {
+                        cleanCtx.drawImage(freshImg, 0, 0);
+                        try {
+                            imageData = cleanCtx.getImageData(0, 0, cleanCanvas.width, cleanCanvas.height);
+                            processImageData(posterizer, imageData, resolve, reject);
+                        } catch (finalError) {
+                            console.error("Could not get ImageData even after redraw:", finalError);
+                            reject(new Error("Failed to process image data. Canvas might be tainted by cross-origin image."));
+                        }
+                    }
+                    freshImg.onerror = () => {
+                        reject(new Error("Failed to reload image for clean canvas."));
+                    }
+                    if (img.src && img.src.startsWith('data:')) {
+                        freshImg.src = img.src;
+                    } else {
+                        reject(new Error("Failed to get image data and could not retry draw."));
+                        return;
+                    }
+                    return;
+                }
 
-                const svgData = posterizer.getSVG();
-
-                const vectorizedImg = new Image();
-                vectorizedImg.onload = () => {
-                    URL.revokeObjectURL(vectorizedImg.src);
-                    resolve(vectorizedImg);
-                };
-                vectorizedImg.onerror = (e) => {
-                    URL.revokeObjectURL(vectorizedImg.src);
-                    console.error("Error loading vectorized SVG:", e);
-                    reject(new Error("Failed to load vectorized SVG image"));
-                };
-
-                const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-                vectorizedImg.src = URL.createObjectURL(svgBlob);
+                if (imageData) {
+                    processImageData(posterizer, imageData, resolve, reject);
+                }
 
             } catch (error) {
-                console.error("Error during vectorization process:", error);
+                console.error("Error during vectorization setup or initial processing:", error);
                 reject(error);
             }
         });
+    }
+
+    function processImageData(posterizer, imageData, resolve, reject) {
+        try {
+            posterizer.loadImageData(imageData);
+            const svgData = posterizer.getSVG();
+
+            if (!svgData || svgData.trim() === '') {
+                console.error("Potrace generated empty SVG data.");
+                reject(new Error("Vectorization resulted in empty SVG. Try different parameters or image."));
+                return;
+            }
+
+            const vectorizedImg = new Image();
+            vectorizedImg.onload = () => {
+                URL.revokeObjectURL(vectorizedImg.src);
+                resolve(vectorizedImg);
+            };
+            vectorizedImg.onerror = (e) => {
+                URL.revokeObjectURL(vectorizedImg.src);
+                console.error("Error loading generated SVG into Image element:", e);
+                reject(new Error("Failed to load vectorized SVG image. The generated SVG might be invalid or too complex. See console."));
+            };
+
+            const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+            vectorizedImg.src = URL.createObjectURL(svgBlob);
+
+        } catch (processingError) {
+            console.error("Error during Potrace processing or SVG generation:", processingError);
+            reject(processingError);
+        }
     }
 
     function resizeImage(img, canvas, size) {
