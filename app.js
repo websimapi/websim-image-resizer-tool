@@ -406,8 +406,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    cropCancelBtn.addEventListener('click', () => {
+    document.getElementById('cropCancelBtn').addEventListener('click', () => {
         cropContainer.style.display = 'none';
-        outputContainer.style.display = 'block';
+        dropArea.style.display = 'block';
+        // Reset the file input to allow selecting the same file again
+        fileInput.value = '';
     });
 });
