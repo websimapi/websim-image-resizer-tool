@@ -54,8 +54,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const value = thresholdSlider.value;
         thresholdValue.textContent = value;
         config.vectorizationThreshold = parseInt(value);
-        if (currentImage) {
+        if (currentImage && config.vectorizeBeforeResize) {
             updatePreview();
+            processImage(currentImage);
         }
     });
 
@@ -63,8 +64,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const value = turdSizeSlider.value;
         turdSizeValue.textContent = value;
         config.turdSize = parseInt(value);
-        if (currentImage) {
+        if (currentImage && config.vectorizeBeforeResize) {
             updatePreview();
+            processImage(currentImage);
         }
     });
 
@@ -72,8 +74,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const value = alphaMaxSlider.value;
         alphaMaxValue.textContent = value;
         config.alphaMax = parseFloat(value);
-        if (currentImage) {
+        if (currentImage && config.vectorizeBeforeResize) {
             updatePreview();
+            processImage(currentImage);
         }
     });
 
@@ -212,6 +215,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             tempCtx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
             
+            // Get image data for processing
+            const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            
+            // Create a bitmap representation for Potrace
+            const bitmap = window.Potrace.thresholdBitmap(imageData.data, tempCanvas.width, tempCanvas.height, config.vectorizationThreshold);
+            
             // Configure and run potrace
             const potraceInstance = window.Potrace.create();
             potraceInstance.setParameter({
@@ -219,11 +228,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 turnPolicy: window.Potrace.TURNPOLICY_MINORITY,
                 alphaMax: config.alphaMax,
                 optCurve: config.optCurve,
-                optTolerance: config.optTolerance,
-                threshold: config.vectorizationThreshold
+                optTolerance: config.optTolerance
             });
             
-            potraceInstance.loadImageFromDataURL(tempCanvas.toDataURL());
+            // Apply the bitmap data directly
+            potraceInstance.setBitmap(bitmap);
             
             // Generate SVG
             const svgData = potraceInstance.getSVG(1);
@@ -272,6 +281,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 tempCtx.drawImage(img, 0, 0);
                 
+                // Get image data for processing
+                const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                
+                // Create a bitmap representation for Potrace
+                const bitmap = window.Potrace.thresholdBitmap(imageData.data, tempCanvas.width, tempCanvas.height, config.vectorizationThreshold);
+                
                 // Configure and run potrace
                 const potraceInstance = window.Potrace.create();
                 potraceInstance.setParameter({
@@ -279,11 +294,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     turnPolicy: window.Potrace.TURNPOLICY_MINORITY,
                     alphaMax: config.alphaMax,
                     optCurve: config.optCurve,
-                    optTolerance: config.optTolerance,
-                    threshold: config.vectorizationThreshold
+                    optTolerance: config.optTolerance
                 });
                 
-                potraceInstance.loadImageFromDataURL(tempCanvas.toDataURL());
+                // Apply the bitmap data directly
+                potraceInstance.setBitmap(bitmap);
                 
                 // Create a new image from the SVG
                 const vectorizedImg = new Image();
