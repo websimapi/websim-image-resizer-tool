@@ -1,6 +1,15 @@
 import { config } from './config.js';
+import { vectorizeImage, vectorizeForPreview } from './vectorizer.js';
 
 document.addEventListener('DOMContentLoaded', () => {
+    if (typeof window.Potrace === 'undefined') {
+        alert('Error: Potrace library failed to load. Vectorization will not work.');
+        const vectorizeToggle = document.getElementById('vectorizeToggle');
+        const vectorSettings = document.querySelector('.vector-settings');
+        if(vectorizeToggle) vectorizeToggle.disabled = true;
+        if(vectorSettings) vectorSettings.style.display = 'none';
+    }
+
     const dropArea = document.getElementById('dropArea');
     const fileInput = document.getElementById('fileInput');
     const previewContainer = document.getElementById('previewContainer');
@@ -25,10 +34,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let originalImageObj = null;
     const PREVIEW_SIZE = 250;
 
-    // Initialize the canvases with the default background color
     initializeCanvases();
 
-    // Initialize settings
     vectorizeToggle.checked = config.vectorizeBeforeResize;
     posterizeThresholdSlider.value = config.posterizeThreshold;
     posterizeThresholdValue.textContent = config.posterizeThreshold;
@@ -43,14 +50,13 @@ document.addEventListener('DOMContentLoaded', () => {
         vectorSettings.classList.add('visible');
     }
 
-    // Update config when settings change
     vectorizeToggle.addEventListener('change', () => {
         config.vectorizeBeforeResize = vectorizeToggle.checked;
         vectorSettings.classList.toggle('visible', config.vectorizeBeforeResize);
 
         if (currentImage) {
             updatePreview();
-            processImage(currentImage);
+            applyProcessing(originalImageObj);
         }
     });
 
@@ -60,7 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
         config.posterizeThreshold = parseInt(value);
         if (currentImage && config.vectorizeBeforeResize) {
             updatePreview();
-            processImage(currentImage);
+            applyProcessing(originalImageObj);
         }
     });
 
@@ -70,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
         config.posterizeSteps = parseInt(value);
         if (currentImage && config.vectorizeBeforeResize) {
             updatePreview();
-            processImage(currentImage);
+            applyProcessing(originalImageObj);
         }
     });
 
@@ -80,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
         config.turdSize = parseInt(value);
         if (currentImage && config.vectorizeBeforeResize) {
             updatePreview();
-            processImage(currentImage);
+            applyProcessing(originalImageObj);
         }
     });
 
@@ -90,7 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
         config.alphaMax = parseFloat(value);
         if (currentImage && config.vectorizeBeforeResize) {
             updatePreview();
-            processImage(currentImage);
+            applyProcessing(originalImageObj);
         }
     });
 
@@ -117,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const file = e.dataTransfer.files[0];
             if (file.type.match('image.*')) {
                 currentImage = file;
-                processImage(file);
+                handleImageFile(file);
             } else {
                 alert('Please upload an image file.');
             }
@@ -128,13 +134,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = e.target.files[0];
         if (file && file.type.match('image.*')) {
             currentImage = file;
-            processImage(file);
+            handleImageFile(file);
         } else {
             alert('Please upload an image file.');
         }
     }
 
-    function processImage(file) {
+    function handleImageFile(file) {
         const reader = new FileReader();
 
         reader.onload = (e) => {
@@ -161,23 +167,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function applyProcessing(imgToProcess) {
-        if (config.vectorizeBeforeResize) {
+        if (!imgToProcess) {
+            console.error("applyProcessing called with no image.");
+            return;
+        }
+        const useVector = config.vectorizeBeforeResize && typeof window.Potrace !== 'undefined';
+
+        if (useVector) {
             vectorizeImage(imgToProcess)
                 .then(vectorizedImg => {
-                    resizeImage(vectorizedImg, canvas28, 28);
-                    resizeImage(vectorizedImg, canvas56, 56);
-                    resizeImage(vectorizedImg, canvas112, 112);
+                    if (!config.vectorizeBeforeResize) {
+                        console.log("Vectorization finished, but toggle switched off. Using original for resize.");
+                        resizeImage(imgToProcess, canvas28, 28);
+                        resizeImage(imgToProcess, canvas56, 56);
+                        resizeImage(imgToProcess, canvas112, 112);
+                    } else {
+                        resizeImage(vectorizedImg, canvas28, 28);
+                        resizeImage(vectorizedImg, canvas56, 56);
+                        resizeImage(vectorizedImg, canvas112, 112);
+                    }
                     outputContainer.style.display = 'block';
                 })
                 .catch(error => {
                     console.error('Vectorization process failed:', error);
-                    alert('Vectorization failed. Falling back to raster resizing. Check the browser console (F12) for more details.');
+                    alert(`Vectorization failed: ${error.message}. Falling back to raster resizing. Check console (F12) for details.`);
                     resizeImage(imgToProcess, canvas28, 28);
                     resizeImage(imgToProcess, canvas56, 56);
                     resizeImage(imgToProcess, canvas112, 112);
                     outputContainer.style.display = 'block';
                 });
         } else {
+            if (config.vectorizeBeforeResize && typeof window.Potrace === 'undefined') {
+                console.warn("Vectorization skipped because Potrace library is not loaded.");
+            }
             resizeImage(imgToProcess, canvas28, 28);
             resizeImage(imgToProcess, canvas56, 56);
             resizeImage(imgToProcess, canvas112, 112);
@@ -190,187 +212,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const originalCtx = originalPreviewCanvas.getContext('2d');
         const scale = Math.min(PREVIEW_SIZE / originalImageObj.width, PREVIEW_SIZE / originalImageObj.height);
-        originalPreviewCanvas.width = originalImageObj.width * scale;
-        originalPreviewCanvas.height = originalImageObj.height * scale;
+        const previewWidth = Math.round(originalImageObj.width * scale);
+        const previewHeight = Math.round(originalImageObj.height * scale);
+
+        originalPreviewCanvas.width = previewWidth;
+        originalPreviewCanvas.height = previewHeight;
         originalCtx.clearRect(0, 0, originalPreviewCanvas.width, originalPreviewCanvas.height);
         originalCtx.drawImage(originalImageObj, 0, 0, originalPreviewCanvas.width, originalPreviewCanvas.height);
 
-        if (config.vectorizeBeforeResize) {
-            vectorizeForPreview(originalImageObj);
+        const useVectorPreview = config.vectorizeBeforeResize && typeof window.Potrace !== 'undefined';
+        if (useVectorPreview) {
+            vectorizeForPreview(originalImageObj, vectorPreviewCanvas, originalPreviewCanvas);
         } else {
             const vectorCtx = vectorPreviewCanvas.getContext('2d');
-            vectorPreviewCanvas.width = originalPreviewCanvas.width;
-            vectorPreviewCanvas.height = originalPreviewCanvas.height;
+            vectorPreviewCanvas.width = previewWidth;
+            vectorPreviewCanvas.height = previewHeight;
             vectorCtx.clearRect(0, 0, vectorPreviewCanvas.width, vectorPreviewCanvas.height);
             vectorCtx.fillStyle = '#eee';
             vectorCtx.fillRect(0, 0, vectorPreviewCanvas.width, vectorPreviewCanvas.height);
             vectorCtx.fillStyle = '#999';
             vectorCtx.textAlign = 'center';
-            vectorCtx.fillText("Vectorization Disabled", vectorPreviewCanvas.width / 2, vectorPreviewCanvas.height / 2);
-        }
-    }
-
-    function vectorizeForPreview(img) {
-        try {
-            const posterizer = new window.Potrace.Posterize();
-
-            posterizer.setParameters({
-                steps: config.posterizeSteps,
-                threshold: config.posterizeThreshold,
-                turdSize: config.turdSize,
-                turnPolicy: window.Potrace.TURNPOLICY_MINORITY,
-                alphaMax: config.alphaMax,
-                optCurve: config.optCurve,
-                optTolerance: config.optTolerance,
-                fill: config.posterizeFill,
-                background: config.posterizeBackground,
-            });
-
-            const scale = Math.min(PREVIEW_SIZE / img.width, PREVIEW_SIZE / img.height);
-            const previewWidth = Math.round(img.width * scale);
-            const previewHeight = Math.round(img.height * scale);
-
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = previewWidth;
-            tempCanvas.height = previewHeight;
-            const tempCtx = tempCanvas.getContext('2d');
-            tempCtx.drawImage(img, 0, 0, previewWidth, previewHeight);
-
-            posterizer.loadImageData(tempCtx.getImageData(0, 0, previewWidth, previewHeight));
-
-            const svgData = posterizer.getSVG();
-
-            const vectorCtx = vectorPreviewCanvas.getContext('2d');
-            vectorPreviewCanvas.width = previewWidth;
-            vectorPreviewCanvas.height = previewHeight;
-            vectorCtx.clearRect(0, 0, vectorPreviewCanvas.width, vectorPreviewCanvas.height);
-
-            const svgImg = new Image();
-            svgImg.onload = () => {
-                vectorCtx.drawImage(svgImg, 0, 0);
-                URL.revokeObjectURL(svgImg.src);
-            };
-            svgImg.onerror = (e) => {
-                console.error("Error loading SVG preview:", e);
-                vectorCtx.fillStyle = '#fdd';
-                vectorCtx.fillRect(0, 0, vectorPreviewCanvas.width, vectorPreviewCanvas.height);
-                vectorCtx.fillStyle = '#900';
-                vectorCtx.textAlign = 'center';
-                vectorCtx.fillText("Preview Error", vectorPreviewCanvas.width / 2, vectorPreviewCanvas.height / 2);
-            }
-
-            const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-            svgImg.src = URL.createObjectURL(svgBlob);
-
-        } catch (error) {
-            console.error('Preview vectorization error:', error);
-            const vectorCtx = vectorPreviewCanvas.getContext('2d');
-            vectorPreviewCanvas.width = originalPreviewCanvas.width;
-            vectorPreviewCanvas.height = originalPreviewCanvas.height;
-            vectorCtx.clearRect(0, 0, vectorPreviewCanvas.width, vectorPreviewCanvas.height);
-            vectorCtx.fillStyle = '#fdd';
-            vectorCtx.fillRect(0, 0, vectorPreviewCanvas.width, vectorPreviewCanvas.height);
-            vectorCtx.fillStyle = '#900';
-            vectorCtx.textAlign = 'center';
-            vectorCtx.fillText("Vector Error", vectorPreviewCanvas.width / 2, vectorPreviewCanvas.height / 2);
-        }
-    }
-
-    function vectorizeImage(img) {
-        return new Promise((resolve, reject) => {
-            try {
-                const posterizer = new window.Potrace.Posterize();
-
-                posterizer.setParameters({
-                    steps: config.posterizeSteps,
-                    threshold: config.posterizeThreshold,
-                    turdSize: config.turdSize,
-                    turnPolicy: window.Potrace.TURNPOLICY_MINORITY,
-                    alphaMax: config.alphaMax,
-                    optCurve: config.optCurve,
-                    optTolerance: config.optTolerance,
-                    fill: config.posterizeFill,
-                    background: config.posterizeBackground,
-                });
-
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = img.naturalWidth || img.width;
-                tempCanvas.height = img.naturalHeight || img.height;
-                const tempCtx = tempCanvas.getContext('2d');
-                tempCtx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
-
-                let imageData;
-                try {
-                    imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-                } catch (e) {
-                    console.error("Error getting ImageData (possibly tainted canvas):", e);
-                    const cleanCanvas = document.createElement('canvas');
-                    cleanCanvas.width = tempCanvas.width;
-                    cleanCanvas.height = tempCanvas.height;
-                    const cleanCtx = cleanCanvas.getContext('2d');
-                    const freshImg = new Image();
-                    freshImg.crossOrigin = "Anonymous";
-                    freshImg.onload = () => {
-                        cleanCtx.drawImage(freshImg, 0, 0);
-                        try {
-                            imageData = cleanCtx.getImageData(0, 0, cleanCanvas.width, cleanCanvas.height);
-                            processImageData(posterizer, imageData, resolve, reject);
-                        } catch (finalError) {
-                            console.error("Could not get ImageData even after redraw:", finalError);
-                            reject(new Error("Failed to process image data. Canvas might be tainted by cross-origin image."));
-                        }
-                    }
-                    freshImg.onerror = () => {
-                        reject(new Error("Failed to reload image for clean canvas."));
-                    }
-                    if (img.src && img.src.startsWith('data:')) {
-                        freshImg.src = img.src;
-                    } else {
-                        reject(new Error("Failed to get image data and could not retry draw."));
-                        return;
-                    }
-                    return;
-                }
-
-                if (imageData) {
-                    processImageData(posterizer, imageData, resolve, reject);
-                }
-
-            } catch (error) {
-                console.error("Error during vectorization setup or initial processing:", error);
-                reject(error);
-            }
-        });
-    }
-
-    function processImageData(posterizer, imageData, resolve, reject) {
-        try {
-            posterizer.loadImageData(imageData);
-            const svgData = posterizer.getSVG();
-
-            if (!svgData || svgData.trim() === '') {
-                console.error("Potrace generated empty SVG data.");
-                reject(new Error("Vectorization resulted in empty SVG. Try different parameters or image."));
-                return;
-            }
-
-            const vectorizedImg = new Image();
-            vectorizedImg.onload = () => {
-                URL.revokeObjectURL(vectorizedImg.src);
-                resolve(vectorizedImg);
-            };
-            vectorizedImg.onerror = (e) => {
-                URL.revokeObjectURL(vectorizedImg.src);
-                console.error("Error loading generated SVG into Image element:", e);
-                reject(new Error("Failed to load vectorized SVG image. The generated SVG might be invalid or too complex. See console."));
-            };
-
-            const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-            vectorizedImg.src = URL.createObjectURL(svgBlob);
-
-        } catch (processingError) {
-            console.error("Error during Potrace processing or SVG generation:", processingError);
-            reject(processingError);
+            const message = (typeof window.Potrace === 'undefined' && config.vectorizeBeforeResize)
+                ? "Potrace Error"
+                : "Vectorization Disabled";
+            vectorCtx.fillText(message, vectorPreviewCanvas.width / 2, vectorPreviewCanvas.height / 2);
         }
     }
 
@@ -382,14 +247,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ctx.clearRect(0, 0, size, size);
 
-        if (!config.preserveTransparency && config.backgroundColor !== 'transparent') {
+        if (!config.preserveTransparency && config.backgroundColor && config.backgroundColor !== 'transparent') {
             ctx.fillStyle = config.backgroundColor;
             ctx.fillRect(0, 0, size, size);
         }
 
-        const scale = Math.min(size / img.width, size / img.height);
-        const scaledWidth = img.width * scale;
-        const scaledHeight = img.height * scale;
+        const imgWidth = img.naturalWidth || img.width;
+        const imgHeight = img.naturalHeight || img.height;
+        const scale = Math.min(size / imgWidth, size / imgHeight);
+        const scaledWidth = imgWidth * scale;
+        const scaledHeight = imgHeight * scale;
         const x = (size - scaledWidth) / 2;
         const y = (size - scaledHeight) / 2;
 
@@ -401,12 +268,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleDownload(e) {
         const size = e.target.getAttribute('data-size');
         const canvas = document.getElementById(`canvas${size}`);
-
         const link = document.createElement('a');
-        link.download = `image_${size}x${size}.png`;
-
+        const filename = currentImage ? currentImage.name.replace(/\.[^/.]+$/, "") : 'image';
+        link.download = `${filename}_${size}x${size}.png`;
         link.href = canvas.toDataURL('image/png');
-
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -418,16 +283,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function initializeCanvases() {
         const canvases = [canvas28, canvas56, canvas112];
+        const defaultSize = 10;
 
         canvases.forEach(canvas => {
+            if (!canvas) return;
+            const size = parseInt(canvas.id.replace('canvas', '')) || defaultSize;
+            canvas.width = size;
+            canvas.height = size;
             const ctx = canvas.getContext('2d');
-            const size = canvas.id.replace('canvas', '');
-            canvas.width = parseInt(size);
-            canvas.height = parseInt(size);
-
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            if (!config.preserveTransparency && config.backgroundColor !== 'transparent') {
+            if (!config.preserveTransparency && config.backgroundColor && config.backgroundColor !== 'transparent') {
                 ctx.fillStyle = config.backgroundColor;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
             }
@@ -436,9 +301,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const previewCanvases = [originalPreviewCanvas, vectorPreviewCanvas];
         previewCanvases.forEach(canvas => {
             if (canvas) {
+                canvas.width = defaultSize;
+                canvas.height = defaultSize;
                 const ctx = canvas.getContext('2d');
-                canvas.width = 10;
-                canvas.height = 10;
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
         });
@@ -450,6 +315,6 @@ document.addEventListener('DOMContentLoaded', () => {
         previewContainer.style.display = 'none';
         outputContainer.style.display = 'none';
         initializeCanvases();
-        fileInput.value = '';
+        if(fileInput) fileInput.value = '';
     }
 });
