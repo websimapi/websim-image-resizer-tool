@@ -1,3 +1,4 @@
+'use strict';
 import { config } from './config.js';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -66,10 +67,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function handleFileSelect(e) {
+        // Reset file input to allow selecting the same file again
+        e.target.value = null;
         const file = e.target.files[0];
         if (file && file.type.match('image.*')) {
             processImage(file);
-        } else {
+        } else if (file) { 
             alert('Please upload an image file.');
         }
     }
@@ -83,41 +86,85 @@ document.addEventListener('DOMContentLoaded', () => {
                 originalImage = img;
                 showCropInterface(img);
             };
+            img.onerror = () => { 
+                alert('Error loading image. The file might be corrupted or in an unsupported format.');
+                resetUI();
+            };
             img.src = e.target.result;
+        };
+        reader.onerror = () => { 
+             alert('Error reading file.');
+             resetUI();
         };
 
         reader.readAsDataURL(file);
     }
 
     function showCropInterface(img) {
-        // Hide main output and show crop interface
+        // Hide other sections and show crop interface
         outputContainer.style.display = 'none';
+        dropArea.style.display = 'none'; 
         cropContainer.style.display = 'block';
 
         // Setup the canvas for cropping
         const ctx = cropCanvas.getContext('2d');
 
         // Calculate dimensions to fit the image in the canvas while maintaining aspect ratio
-        const maxWidth = cropContainer.clientWidth - 40;
-        const maxHeight = window.innerHeight * 0.6;
+        const maxCanvasWidth = cropContainer.clientWidth > 50 ? cropContainer.clientWidth - 40 : 300;
+        const maxCanvasHeight = window.innerHeight * 0.6; 
 
-        const scale = Math.min(maxWidth / img.width, maxHeight / img.height);
-        canvasWidth = img.width * scale;
-        canvasHeight = img.height * scale;
+        let targetWidth = img.width;
+        let targetHeight = img.height;
+        let scale = 1;
+
+        // Scale down if image width exceeds max canvas width
+        if (targetWidth > maxCanvasWidth) {
+            scale = maxCanvasWidth / targetWidth;
+            targetWidth = maxCanvasWidth;
+            targetHeight *= scale;
+        }
+
+        // Scale down further if image height exceeds max canvas height
+        if (targetHeight > maxCanvasHeight) {
+            scale = maxCanvasHeight / targetHeight;
+            targetWidth *= scale;
+            targetHeight = maxCanvasHeight;
+        }
+
+        // Use integer dimensions for the canvas to avoid potential rendering issues
+        canvasWidth = Math.max(1, Math.round(targetWidth)); 
+        canvasHeight = Math.max(1, Math.round(targetHeight)); 
+
+        if (canvasWidth <= 1 || canvasHeight <= 1) {
+            console.error("Calculated canvas dimensions are too small:", canvasWidth, canvasHeight);
+            alert("Could not display image for cropping. Calculated dimensions too small.");
+            resetUI();
+            return;
+        }
 
         cropCanvas.width = canvasWidth;
         cropCanvas.height = canvasHeight;
 
-        // Draw the image on the canvas
-        ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
-
-        // Initialize crop area to 80% of the image
+        // Initialize crop area to 80% of the image, centered
         cropWidth = canvasWidth * 0.8;
         cropHeight = canvasHeight * 0.8;
         cropX = (canvasWidth - cropWidth) / 2;
         cropY = (canvasHeight - cropHeight) / 2;
 
-        // Draw the crop overlay
+        // Apply aspect ratio constraint if needed, adjusting the initial crop box
+        if (config.cropAspectRatio) {
+            const aspectRatio = config.cropAspectRatio;
+            const currentRatio = cropWidth / cropHeight;
+            if (currentRatio > aspectRatio) { 
+                cropWidth = cropHeight * aspectRatio;
+                cropX = (canvasWidth - cropWidth) / 2; 
+            } else { 
+                cropHeight = cropWidth / aspectRatio;
+                cropY = (canvasHeight - cropHeight) / 2; 
+            }
+        }
+
+        // Draw the initial crop overlay (includes drawing the image)
         drawCropOverlay();
 
         // Setup crop area event listeners
@@ -125,15 +172,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function setupCropEvents() {
+        // Remove previous listeners to avoid duplicates if re-cropping
+        removeCropEvents();
+
         cropCanvas.addEventListener('mousedown', onMouseDown);
         cropCanvas.addEventListener('mousemove', onMouseMove);
-        cropCanvas.addEventListener('mouseup', onMouseUp);
-        cropCanvas.addEventListener('mouseleave', onMouseUp);
+        document.addEventListener('mouseup', onMouseUp); 
+        cropCanvas.addEventListener('mouseleave', onMouseLeave); 
 
         cropConfirmBtn.addEventListener('click', applyCrop);
+        cropCancelBtn.addEventListener('click', cancelCrop);
+    }
+
+    function removeCropEvents() {
+        cropCanvas.removeEventListener('mousedown', onMouseDown);
+        cropCanvas.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp); 
+        cropCanvas.removeEventListener('mouseleave', onMouseLeave);
+
+        cropConfirmBtn.removeEventListener('click', applyCrop);
+        cropCancelBtn.removeEventListener('click', cancelCrop);
     }
 
     function onMouseDown(e) {
+        if (e.target !== cropCanvas) return;
         startX = e.offsetX;
         startY = e.offsetY;
 
@@ -141,6 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const corner = getResizeHandle(startX, startY);
         if (corner) {
             isResizing = true;
+            isDragging = false; 
             resizeHandle = corner;
             return;
         }
@@ -149,267 +212,331 @@ document.addEventListener('DOMContentLoaded', () => {
         if (startX >= cropX && startX <= cropX + cropWidth &&
             startY >= cropY && startY <= cropY + cropHeight) {
             isDragging = true;
+            isResizing = false; 
+        } else {
+            isDragging = false;
+            isResizing = false;
         }
     }
 
     function onMouseMove(e) {
-        const mouseX = e.offsetX;
-        const mouseY = e.offsetY;
-
-        // Update cursor style based on position
-        updateCursor(mouseX, mouseY);
-
-        if (isResizing) {
-            resizeCropArea(mouseX, mouseY);
-            drawCropOverlay();
+        if (!isDragging && !isResizing) {
+            updateCursor(e.offsetX, e.offsetY);
             return;
         }
 
-        if (isDragging) {
-            // Move the crop area
+        const mouseX = e.offsetX;
+        const mouseY = e.offsetY;
+
+        if (isResizing) {
+            resizeCropArea(mouseX, mouseY);
+            startX = mouseX;
+            startY = mouseY;
+        } else if (isDragging) {
             const dx = mouseX - startX;
             const dy = mouseY - startY;
 
-            cropX = Math.max(0, Math.min(canvasWidth - cropWidth, cropX + dx));
-            cropY = Math.max(0, Math.min(canvasHeight - cropHeight, cropY + dy));
+            const newCropX = cropX + dx;
+            const newCropY = cropY + dy;
+
+            cropX = Math.max(0, Math.min(canvasWidth - cropWidth, newCropX));
+            cropY = Math.max(0, Math.min(canvasHeight - cropHeight, newCropY));
 
             startX = mouseX;
             startY = mouseY;
-
-            drawCropOverlay();
         }
+
+        drawCropOverlay();
     }
 
     function onMouseUp() {
-        isDragging = false;
-        isResizing = false;
+        if (isDragging || isResizing) {
+            isDragging = false;
+            isResizing = false;
+        }
+    }
+
+    function onMouseLeave() {
+        if (isDragging || isResizing) {
+             onMouseUp();
+        }
+        cropCanvas.style.cursor = 'default';
     }
 
     function getResizeHandle(x, y) {
         const cornerSize = config.cropperCornerSize;
+        const halfCornerSize = cornerSize / 2;
 
-        // Check top-left corner
-        if (Math.abs(x - cropX) <= cornerSize && Math.abs(y - cropY) <= cornerSize) {
-            return 'tl';
-        }
-        // Check top-right corner
-        if (Math.abs(x - (cropX + cropWidth)) <= cornerSize && Math.abs(y - cropY) <= cornerSize) {
-            return 'tr';
-        }
-        // Check bottom-left corner
-        if (Math.abs(x - cropX) <= cornerSize && Math.abs(y - (cropY + cropHeight)) <= cornerSize) {
-            return 'bl';
-        }
-        // Check bottom-right corner
-        if (Math.abs(x - (cropX + cropWidth)) <= cornerSize && Math.abs(y - (cropY + cropHeight)) <= cornerSize) {
-            return 'br';
-        }
+        const handleMargin = cornerSize; 
+
+        if (x >= cropX - handleMargin && x <= cropX + handleMargin && y >= cropY - handleMargin && y <= cropY + handleMargin) return 'tl';
+        if (x >= cropX + cropWidth - handleMargin && x <= cropX + cropWidth + handleMargin && y >= cropY - handleMargin && y <= cropY + handleMargin) return 'tr';
+        if (x >= cropX - handleMargin && x <= cropX + handleMargin && y >= cropY + cropHeight - handleMargin && y <= cropY + cropHeight + handleMargin) return 'bl';
+        if (x >= cropX + cropWidth - handleMargin && x <= cropX + cropWidth + handleMargin && y >= cropY + cropHeight - handleMargin && y <= cropY + cropHeight + handleMargin) return 'br';
 
         return null;
     }
 
     function updateCursor(x, y) {
         const corner = getResizeHandle(x, y);
+        let cursorStyle = 'default';
 
         if (corner) {
             if (corner === 'tl' || corner === 'br') {
-                cropCanvas.style.cursor = 'nwse-resize';
-            } else {
-                cropCanvas.style.cursor = 'nesw-resize';
+                cursorStyle = 'nwse-resize';
+            } else if (corner === 'tr' || corner === 'bl') {
+                cursorStyle = 'nesw-resize';
             }
         } else if (x >= cropX && x <= cropX + cropWidth && y >= cropY && y <= cropY + cropHeight) {
-            cropCanvas.style.cursor = 'move';
-        } else {
-            cropCanvas.style.cursor = 'default';
+            if (!isResizing) {
+                cursorStyle = 'move';
+            }
         }
+
+        cropCanvas.style.cursor = cursorStyle;
     }
 
     function resizeCropArea(mouseX, mouseY) {
-        const minSize = 20; // Minimum crop area size
+        const minSize = 20; 
+        const aspectRatio = config.cropAspectRatio;
+
+        let newX = cropX;
+        let newY = cropY;
+        let newWidth = cropWidth;
+        let newHeight = cropHeight;
 
         switch (resizeHandle) {
             case 'tl':
-                const newWidth1 = cropWidth + (cropX - mouseX);
-                const newHeight1 = cropHeight + (cropY - mouseY);
-
-                if (newWidth1 >= minSize) {
-                    cropWidth = newWidth1;
-                    cropX = mouseX;
-                }
-
-                if (newHeight1 >= minSize) {
-                    cropHeight = newHeight1;
-                    cropY = mouseY;
-                }
+                newWidth = cropX + cropWidth - mouseX;
+                newHeight = cropY + cropHeight - mouseY;
+                newX = mouseX;
+                newY = mouseY;
                 break;
-
             case 'tr':
-                const newWidth2 = mouseX - cropX;
-                const newHeight2 = cropHeight + (cropY - mouseY);
-
-                if (newWidth2 >= minSize) {
-                    cropWidth = newWidth2;
-                }
-
-                if (newHeight2 >= minSize) {
-                    cropHeight = newHeight2;
-                    cropY = mouseY;
-                }
+                newWidth = mouseX - cropX;
+                newHeight = cropY + cropHeight - mouseY;
+                newY = mouseY;
                 break;
-
             case 'bl':
-                const newWidth3 = cropWidth + (cropX - mouseX);
-                const newHeight3 = mouseY - cropY;
-
-                if (newWidth3 >= minSize) {
-                    cropWidth = newWidth3;
-                    cropX = mouseX;
-                }
-
-                if (newHeight3 >= minSize) {
-                    cropHeight = newHeight3;
-                }
+                newWidth = cropX + cropWidth - mouseX;
+                newHeight = mouseY - cropY;
+                newX = mouseX;
                 break;
-
             case 'br':
-                const newWidth4 = mouseX - cropX;
-                const newHeight4 = mouseY - cropY;
-
-                if (newWidth4 >= minSize) {
-                    cropWidth = newWidth4;
-                }
-
-                if (newHeight4 >= minSize) {
-                    cropHeight = newHeight4;
-                }
+                newWidth = mouseX - cropX;
+                newHeight = mouseY - cropY;
                 break;
         }
 
-        // Enforce aspect ratio if needed
-        if (config.cropAspectRatio) {
-            cropHeight = cropWidth / config.cropAspectRatio;
+        if (aspectRatio) {
+            let targetHeight = newWidth / aspectRatio;
+            let targetWidth = newHeight * aspectRatio;
+
+            targetHeight = Math.max(minSize, newWidth / aspectRatio);
+            if (resizeHandle === 'tl' || resizeHandle === 'tr') { 
+                 newY = (newY + newHeight) - targetHeight; 
+            }
+            newHeight = targetHeight;
         }
+
+        newX = Math.max(0, newX);
+        newY = Math.max(0, newY);
+
+        if (newWidth < minSize) {
+             if (resizeHandle === 'tl' || resizeHandle === 'bl') { 
+                 newX = cropX + cropWidth - minSize; 
+             }
+            newWidth = minSize;
+        }
+        if (newHeight < minSize) {
+             if (resizeHandle === 'tl' || resizeHandle === 'tr') { 
+                 newY = cropY + cropHeight - minSize; 
+             }
+            newHeight = minSize;
+        }
+
+        if (newX + newWidth > canvasWidth) {
+            newWidth = canvasWidth - newX;
+            if (aspectRatio) {
+                 newHeight = Math.max(minSize, newWidth / aspectRatio);
+                 if (resizeHandle === 'tl' || resizeHandle === 'tr') {
+                     newY = Math.max(0, (cropY + cropHeight) - newHeight);
+                 }
+             }
+        }
+        if (newY + newHeight > canvasHeight) {
+            newHeight = canvasHeight - newY;
+            if (aspectRatio) {
+                 newWidth = Math.max(minSize, newHeight * aspectRatio);
+                 if (resizeHandle === 'tl' || resizeHandle === 'bl') {
+                      newX = Math.max(0, (cropX + cropWidth) - newWidth);
+                 }
+             }
+        }
+
+        newWidth = Math.max(minSize, newWidth);
+        newHeight = Math.max(minSize, newHeight);
+
+        newX = Math.max(0, Math.min(canvasWidth - newWidth, newX));
+        newY = Math.max(0, Math.min(canvasHeight - newHeight, newY));
+
+        cropX = newX;
+        cropY = newY;
+        cropWidth = newWidth;
+        cropHeight = newHeight;
     }
 
     function drawCropOverlay() {
         const ctx = cropCanvas.getContext('2d');
+        if (!ctx || !originalImage) return; 
 
-        // Clear the canvas and redraw the image
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
         ctx.drawImage(originalImage, 0, 0, canvasWidth, canvasHeight);
 
-        // Draw darkened overlay
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; 
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-        // Clear the crop area to show the image
-        ctx.clearRect(cropX, cropY, cropWidth, cropHeight);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(cropX, cropY, cropWidth, cropHeight);
+        ctx.clip();
+        ctx.drawImage(originalImage, 0, 0, canvasWidth, canvasHeight);
+        ctx.restore();
 
-        // Draw border around crop area
         ctx.strokeStyle = config.cropperLineColor;
         ctx.lineWidth = 2;
         ctx.strokeRect(cropX, cropY, cropWidth, cropHeight);
 
-        // Draw resize handles
         const handleSize = config.cropperCornerSize;
+        const halfHandleSize = handleSize / 2;
         ctx.fillStyle = config.cropperLineColor;
 
-        // Draw the corner handles
-        ctx.fillRect(cropX - handleSize / 2, cropY - handleSize / 2, handleSize, handleSize); // Top-left
-        ctx.fillRect(cropX + cropWidth - handleSize / 2, cropY - handleSize / 2, handleSize, handleSize); // Top-right
-        ctx.fillRect(cropX - handleSize / 2, cropY + cropHeight - handleSize / 2, handleSize, handleSize); // Bottom-left
-        ctx.fillRect(cropX + cropWidth - handleSize / 2, cropY + cropHeight - handleSize / 2, handleSize, handleSize); // Bottom-right
+        ctx.fillRect(cropX - halfHandleSize, cropY - halfHandleSize, handleSize, handleSize); 
+        ctx.fillRect(cropX + cropWidth - halfHandleSize, cropY - halfHandleSize, handleSize, handleSize); 
+        ctx.fillRect(cropX - halfHandleSize, cropY + cropHeight - halfHandleSize, handleSize, handleSize); 
+        ctx.fillRect(cropX + cropWidth - halfHandleSize, cropY + cropHeight - halfHandleSize, handleSize, handleSize); 
     }
 
     function applyCrop() {
         if (!originalImage) return;
 
-        // Calculate the actual crop coordinates in the original image
+        removeCropEvents();
+
         const scaleX = originalImage.width / canvasWidth;
         const scaleY = originalImage.height / canvasHeight;
 
-        const originalCropX = cropX * scaleX;
-        const originalCropY = cropY * scaleY;
-        const originalCropWidth = cropWidth * scaleX;
-        const originalCropHeight = cropHeight * scaleY;
+        const originalCropX = Math.floor(cropX * scaleX);
+        const originalCropY = Math.floor(cropY * scaleY);
+        const originalCropWidth = Math.ceil(cropWidth * scaleX);
+        const originalCropHeight = Math.ceil(cropHeight * scaleY);
 
-        // Create a temporary canvas to hold the cropped image
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = originalCropWidth;
-        tempCanvas.height = originalCropHeight;
+        tempCanvas.width = Math.max(1, originalCropWidth);
+        tempCanvas.height = Math.max(1, originalCropHeight);
 
         const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) {
+            alert("Failed to create temporary canvas for cropping.");
+            resetUI();
+            return;
+        }
         tempCtx.drawImage(
             originalImage,
-            originalCropX, originalCropY, originalCropWidth, originalCropHeight,
-            0, 0, originalCropWidth, originalCropHeight
+            originalCropX, originalCropY, 
+            originalCropWidth, originalCropHeight,
+            0, 0, 
+            tempCanvas.width, tempCanvas.height 
         );
 
-        // Create a new image from the cropped canvas
         const croppedImg = new Image();
         croppedImg.onload = () => {
-            // Resize the cropped image to all required sizes
             resizeImage(croppedImg, canvas28, 28);
             resizeImage(croppedImg, canvas56, 56);
             resizeImage(croppedImg, canvas112, 112);
 
-            // Hide crop interface and show output
             cropContainer.style.display = 'none';
             outputContainer.style.display = 'block';
+            dropArea.style.display = 'none'; 
+
+            // originalImage = null; 
         };
-        croppedImg.src = tempCanvas.toDataURL();
+        croppedImg.onerror = () => {
+            alert("Failed to process cropped image data.");
+            resetUI();
+        };
+        croppedImg.src = tempCanvas.toDataURL(); 
+    }
+
+    function cancelCrop() {
+        removeCropEvents();
+        resetUI();
+    }
+
+    function resetUI() {
+        originalImage = null;
+        cropContainer.style.display = 'none';
+        outputContainer.style.display = 'none';
+        dropArea.style.display = 'block'; 
+
+        initializeCanvases();
+        const cropCtx = cropCanvas.getContext('2d');
+        if (cropCtx) {
+            cropCtx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+        }
+        fileInput.value = null;
     }
 
     function resizeImage(img, canvas, size) {
         const ctx = canvas.getContext('2d');
+        if (!ctx) return;
 
-        // Clear the canvas
         ctx.clearRect(0, 0, size, size);
 
-        // Set background color
         ctx.fillStyle = config.backgroundColor;
         ctx.fillRect(0, 0, size, size);
 
-        // Calculate aspect ratio to maintain proportions
         const scale = Math.min(size / img.width, size / img.height);
-        const x = (size - img.width * scale) / 2;
-        const y = (size - img.height * scale) / 2;
+        const scaledWidth = img.width * scale;
+        const scaledHeight = img.height * scale;
 
-        // Draw the resized image
-        ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+        const x = (size - scaledWidth) / 2;
+        const y = (size - scaledHeight) / 2;
+
+        ctx.drawImage(img, Math.round(x), Math.round(y), Math.round(scaledWidth), Math.round(scaledHeight));
     }
 
     function handleDownload(e) {
         const size = e.target.getAttribute('data-size');
+        if (!size) return;
         const canvas = document.getElementById(`canvas${size}`);
+        if (!canvas) return;
 
-        // Create a temporary link element
         const link = document.createElement('a');
-        link.download = `image_${size}x${size}.png`;
+        const filename = originalImage ? `cropped_${size}x${size}.png` : `image_${size}x${size}.png`;
+        link.download = filename;
 
-        // Convert canvas to data URL and set as link href
-        link.href = canvas.toDataURL('image/png');
+        try {
+            link.href = canvas.toDataURL('image/png');
 
-        // Trigger download
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (err) {
+            console.error("Error generating download link:", err);
+            alert("Could not generate download file.");
+        }
     }
 
     function initializeCanvases() {
         const canvases = [canvas28, canvas56, canvas112];
 
         canvases.forEach(canvas => {
+            if (!canvas) return;
             const ctx = canvas.getContext('2d');
+            if (!ctx) return;
             ctx.fillStyle = config.backgroundColor;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
         });
     }
-
-    document.getElementById('cropCancelBtn').addEventListener('click', () => {
-        cropContainer.style.display = 'none';
-        dropArea.style.display = 'block';
-        // Reset the file input to allow selecting the same file again
-        fileInput.value = '';
-    });
 });

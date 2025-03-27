@@ -9,11 +9,16 @@ body {
     background-color: #f5f5f5;
     color: #333;
     padding: 20px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
 .container {
     max-width: 800px;
-    margin: 0 auto;
+    width: 100%; 
+    margin: 20px auto; 
     background-color: white;
     border-radius: 10px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -39,6 +44,7 @@ h2 {
     cursor: pointer;
     transition: all 0.3s;
     background-color: #f9f9f9;
+    display: block; 
 }
 
 .upload-area:hover, .upload-area.dragover {
@@ -69,12 +75,12 @@ h2 {
 
 .output-container {
     margin-top: 30px;
-    display: none;
+    display: none; 
 }
 
 .image-results {
     display: flex;
-    justify-content: space-between;
+    justify-content: space-around; 
     flex-wrap: wrap;
     gap: 20px;
 }
@@ -82,11 +88,15 @@ h2 {
 .result-item {
     flex: 1;
     min-width: 150px;
+    max-width: 200px; 
     text-align: center;
     background-color: #f9f9f9;
     border-radius: 8px;
     padding: 15px;
     box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    display: flex; 
+    flex-direction: column;
+    justify-content: space-between;
 }
 
 .result-image-container {
@@ -98,6 +108,8 @@ h2 {
     border-radius: 6px;
     padding: 10px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    min-height: 112px; 
+    min-width: 112px;
 }
 
 canvas {
@@ -105,7 +117,8 @@ canvas {
     max-width: 100%;
     display: block;
     margin: 0 auto;
-    image-rendering: pixelated;
+    image-rendering: pixelated; 
+    background-color: #fff; 
 }
 
 .download-btn {
@@ -117,6 +130,7 @@ canvas {
     cursor: pointer;
     transition: background-color 0.3s;
     font-size: 14px;
+    margin-top: 10px; 
 }
 
 .download-btn:hover {
@@ -125,20 +139,22 @@ canvas {
 
 .crop-container {
     margin-top: 30px;
-    display: none;
+    display: none; 
     text-align: center;
 }
 
 .crop-canvas-container {
-    margin: 20px 0;
+    margin: 20px auto; 
     position: relative;
+    display: inline-block; 
+    max-width: 100%; 
+    line-height: 0; 
 }
 
 #cropCanvas {
     display: block;
-    max-width: 100%;
-    margin: 0 auto;
-    cursor: crosshair;
+    max-width: 100%; 
+    max-height: 60vh; 
     border: 1px solid #ddd;
 }
 
@@ -171,11 +187,24 @@ canvas {
 }
 
 @media (max-width: 600px) {
+    .container {
+        padding: 20px;
+    }
     .image-results {
         flex-direction: column;
+        align-items: center; 
     }
-    
+
     .result-item {
-        width: 100%;
+        width: 80%; 
+        max-width: 250px;
+    }
+
+    .upload-area {
+        padding: 30px;
+    }
+
+     #cropCanvas {
+        max-height: 50vh; 
     }
 }
