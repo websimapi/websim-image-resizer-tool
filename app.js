@@ -7,9 +7,36 @@ document.addEventListener('DOMContentLoaded', () => {
     const canvas28 = document.getElementById('canvas28');
     const canvas56 = document.getElementById('canvas56');
     const canvas112 = document.getElementById('canvas112');
+    const vectorizeToggle = document.getElementById('vectorizeToggle');
+    const thresholdSlider = document.getElementById('thresholdSlider');
+    const thresholdValue = document.getElementById('thresholdValue');
+    
+    let currentImage = null;
 
     // Initialize the canvases with the default background color
     initializeCanvases();
+    
+    // Initialize settings
+    vectorizeToggle.checked = config.vectorizeBeforeResize;
+    thresholdSlider.value = config.vectorizationThreshold;
+    thresholdValue.textContent = config.vectorizationThreshold;
+    
+    // Update config when settings change
+    vectorizeToggle.addEventListener('change', () => {
+        config.vectorizeBeforeResize = vectorizeToggle.checked;
+        if (currentImage) {
+            processImage(currentImage);
+        }
+    });
+    
+    thresholdSlider.addEventListener('input', () => {
+        const value = thresholdSlider.value;
+        thresholdValue.textContent = value;
+        config.vectorizationThreshold = parseInt(value);
+        if (currentImage && config.vectorizeBeforeResize) {
+            processImage(currentImage);
+        }
+    });
 
     // Handle file upload via click
     dropArea.addEventListener('click', () => {
@@ -42,14 +69,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Handle download button clicks
-    document.querySelectorAll('.download-btn').forEach(button => {
-        button.addEventListener('click', handleDownload);
-    });
-
     function handleFileSelect(e) {
         const file = e.target.files[0];
         if (file && file.type.match('image.*')) {
+            currentImage = file;
             processImage(file);
         } else {
             alert('Please upload an image file.');
@@ -62,18 +85,88 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.onload = (e) => {
             const img = new Image();
             img.onload = () => {
-                // Resize the image to all required sizes
-                resizeImage(img, canvas28, 28);
-                resizeImage(img, canvas56, 56);
-                resizeImage(img, canvas112, 112);
-                
-                // Show the output container
-                outputContainer.style.display = 'block';
+                if (config.vectorizeBeforeResize) {
+                    vectorizeImage(img)
+                        .then(vectorizedImg => {
+                            // Resize the vectorized image
+                            resizeImage(vectorizedImg, canvas28, 28);
+                            resizeImage(vectorizedImg, canvas56, 56);
+                            resizeImage(vectorizedImg, canvas112, 112);
+                            
+                            // Show the output container
+                            outputContainer.style.display = 'block';
+                        })
+                        .catch(error => {
+                            console.error('Vectorization error:', error);
+                            // Fallback to regular resizing if vectorization fails
+                            resizeImage(img, canvas28, 28);
+                            resizeImage(img, canvas56, 56);
+                            resizeImage(img, canvas112, 112);
+                            outputContainer.style.display = 'block';
+                        });
+                } else {
+                    // Regular resize without vectorization
+                    resizeImage(img, canvas28, 28);
+                    resizeImage(img, canvas56, 56);
+                    resizeImage(img, canvas112, 112);
+                    
+                    // Show the output container
+                    outputContainer.style.display = 'block';
+                }
             };
             img.src = e.target.result;
         };
         
         reader.readAsDataURL(file);
+    }
+    
+    function vectorizeImage(img) {
+        return new Promise((resolve, reject) => {
+            try {
+                // Create a temporary canvas for processing
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCanvas.width = img.width;
+                tempCanvas.height = img.height;
+                
+                // Draw the image to the canvas
+                tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+                if (!config.preserveTransparency) {
+                    tempCtx.fillStyle = config.backgroundColor;
+                    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+                }
+                tempCtx.drawImage(img, 0, 0);
+                
+                // Get image data for processing
+                const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                
+                // Configure and run potrace
+                const potraceInstance = window.Potrace.create();
+                potraceInstance.setParameter({
+                    turdSize: 2,
+                    turnPolicy: window.Potrace.TURNPOLICY_MINORITY,
+                    alphaMax: 1,
+                    optCurve: true,
+                    optTolerance: 0.2,
+                    threshold: config.vectorizationThreshold
+                });
+                
+                potraceInstance.loadImageFromDataURL(tempCanvas.toDataURL());
+                
+                // Create a new image from the SVG
+                const vectorizedImg = new Image();
+                vectorizedImg.onload = () => resolve(vectorizedImg);
+                vectorizedImg.onerror = (e) => reject(e);
+                
+                // Generate SVG
+                const svgData = potraceInstance.getSVG(1);
+                const svgBlob = new Blob([svgData], {type: 'image/svg+xml'});
+                const svgUrl = URL.createObjectURL(svgBlob);
+                vectorizedImg.src = svgUrl;
+            } catch (error) {
+                reject(error);
+            }
+        });
     }
 
     function resizeImage(img, canvas, size) {
@@ -96,6 +189,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Draw the resized image
         ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
     }
+
+    // Handle download button clicks
+    document.querySelectorAll('.download-btn').forEach(button => {
+        button.addEventListener('click', handleDownload);
+    });
 
     function handleDownload(e) {
         const size = e.target.getAttribute('data-size');
